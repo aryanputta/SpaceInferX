@@ -195,12 +195,117 @@ def plot_kernel_tcp(path: str):
     plt.close()
 
 
+def plot_orbit_tcp(path: str):
+    with open(path) as f:
+        data = json.load(f)
+
+    orbits = [d["orbit"] for d in data]
+    goodputs = [d["goodput_mbps"] for d in data]
+    rtts_p50 = [d["rtt_p50_ms"] for d in data]
+    rtts_p99 = [d["rtt_p99_ms"] for d in data]
+    efficiencies = [d["goodput_efficiency"] * 100 for d in data]
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+    fig.suptitle("TCP Goodput by Orbit — Space-Analog Link Conditions", fontsize=13)
+    xs = range(len(orbits))
+
+    ax = axes[0]
+    ax.bar(xs, goodputs, color=["#2563eb", "#16a34a", "#9333ea", "#dc2626"])
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(orbits, rotation=20, ha="right", fontsize=9)
+    ax.set_ylabel("Goodput (Mbps)")
+    ax.set_title("Goodput by Orbit")
+    ax.grid(True, alpha=0.3, axis="y")
+
+    ax = axes[1]
+    ax.bar(xs, rtts_p50, label="P50", color="#2563eb", alpha=0.7)
+    ax.bar(xs, rtts_p99, label="P99", color="#dc2626", alpha=0.5)
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(orbits, rotation=20, ha="right", fontsize=9)
+    ax.set_ylabel("RTT (ms)")
+    ax.set_title("RTT Distribution by Orbit")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+
+    ax = axes[2]
+    ax.bar(xs, efficiencies, color="#16a34a")
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(orbits, rotation=20, ha="right", fontsize=9)
+    ax.set_ylabel("Goodput Efficiency (%)")
+    ax.set_title("Goodput / Theoretical Max")
+    ax.grid(True, alpha=0.3, axis="y")
+
+    plt.tight_layout()
+    out = path.replace(".json", "_plot.png")
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"Saved: {out}")
+    plt.close()
+
+
+def plot_orbital_thermal(path: str):
+    with open(path) as f:
+        data = json.load(f)
+
+    orbits = [d["orbit"] for d in data]
+    t_max_active = [d["active_load"]["t_max_c"] for d in data]
+    t_min_active = [d["active_load"]["t_min_c"] for d in data]
+    ss_sun = [d["steady_state"]["full_sun_active_c"] for d in data]
+    ss_eclipse = [d["steady_state"]["eclipse_active_c"] for d in data]
+    radiator_req = [d["radiator_area_required_cm2"] for d in data]
+    radiator_have = data[0]["current_radiator_cm2"]
+    throttle_min = [d["active_load"]["throttle_min"] for d in data]
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+    fig.suptitle("Orbital Thermal Profile — 1U Passive-Cooled Compute Module (5W TDP)", fontsize=12)
+    xs = range(len(orbits))
+
+    ax = axes[0]
+    ax.bar(xs, ss_sun, label="Full sun (active)", color="#dc2626", alpha=0.8)
+    ax.bar(xs, ss_eclipse, label="Eclipse (active)", color="#2563eb", alpha=0.8)
+    ax.axhline(y=85, color="black", linestyle="--", linewidth=1, label="T_max = 85°C")
+    ax.axhline(y=70, color="orange", linestyle=":", linewidth=1, label="Throttle = 70°C")
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(orbits, rotation=20, ha="right", fontsize=9)
+    ax.set_ylabel("Temperature (°C)")
+    ax.set_title("Steady-State Temperature")
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    ax = axes[1]
+    ax.bar(xs, radiator_req, label="Required", color="#dc2626", alpha=0.8)
+    ax.axhline(y=radiator_have, color="#2563eb", linestyle="--", linewidth=2,
+               label=f"Available ({radiator_have:.0f} cm²)")
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(orbits, rotation=20, ha="right", fontsize=9)
+    ax.set_ylabel("Radiator Area (cm²)")
+    ax.set_title("Radiator Area: Required vs Available")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    ax = axes[2]
+    ax.bar(xs, [t * 100 for t in throttle_min], color="#16a34a")
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(orbits, rotation=20, ha="right", fontsize=9)
+    ax.set_ylabel("Min Throttle Level (%)")
+    ax.set_ylim(0, 110)
+    ax.set_title("Worst-Case Throttle in 3-Orbit Sim")
+    ax.grid(True, alpha=0.3, axis="y")
+
+    plt.tight_layout()
+    out = path.replace(".json", "_plot.png")
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"Saved: {out}")
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tcp",      help="Simulated TCP sweep JSON")
+    parser.add_argument("--tcp",      help="Simulated TCP BER sweep JSON")
     parser.add_argument("--tcp-kern", help="Kernel TCP sweep JSON (iperf3+dummynet)")
+    parser.add_argument("--tcp-orbit", help="Orbit TCP sweep JSON")
     parser.add_argument("--kv",       help="KV cache fault sweep JSON")
     parser.add_argument("--inf",      help="Inference throttle sweep JSON")
+    parser.add_argument("--thermal",  help="Orbital thermal sweep JSON")
     parser.add_argument("--all",      action="store_true", help="Plot all available results")
     args = parser.parse_args()
 
@@ -214,6 +319,11 @@ def main():
         if os.path.exists(p): plot_kernel_tcp(p)
         else: print(f"Not found: {p} — run kernel TCP sweep with sudo first")
 
+    if args.all or args.tcp_orbit:
+        p = getattr(args, "tcp_orbit", None) or "results/space_analog/tcp_orbit_sweep.json"
+        if os.path.exists(p): plot_orbit_tcp(p)
+        else: print(f"Not found: {p}")
+
     if args.all or args.kv:
         p = args.kv or "results/space_analog/kvcache_fault_sweep.json"
         if os.path.exists(p): plot_kvcache_sweep(p)
@@ -223,6 +333,11 @@ def main():
         p = args.inf or "results/space_analog/inference_throttle_sweep.json"
         if os.path.exists(p): plot_inference_sweep(p)
         else: print(f"Not found: {p} — run inference sweep first")
+
+    if args.all or args.thermal:
+        p = getattr(args, "thermal", None) or "results/space_analog/orbital_thermal_sweep.json"
+        if os.path.exists(p): plot_orbital_thermal(p)
+        else: print(f"Not found: {p}")
 
 
 if __name__ == "__main__":
